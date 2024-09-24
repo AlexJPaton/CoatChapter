@@ -23,12 +23,21 @@ op.df <- read.csv("opt_time_2021-7-30.csv")
 op83 <- op.df[op.df$camera %in% multidf$cam, ]
 #write.csv(op83, "op83.csv") #done manually 282363 days
 
+
 #CoatDF83 contains only the cameras that lasted long enough to count.
 length(CoatDF83)
 #24076 images
 table1 <- table(CoatDF83$Coat.colour, CoatDF83$Coat.pattern)
 table1
 prop.table(table1)
+#White cats? 
+table1 <- table(CoatDF83$Coat.colour, CoatDF83$Coat.pattern, CoatDF83$White.present)
+table1
+
+#New table for daily captures. Done by keeping only rows with distinct dates and cameras. 
+CoatDF83UniqueDays <- CoatDF83 %>% distinct(cam, Date, .keep_all = TRUE)
+table1 <- table(CoatDF83UniqueDays$Coat.colour, CoatDF83UniqueDays$Coat.pattern)
+table1
 
 #Look at individual counts for each
 library(dplyr)
@@ -429,6 +438,17 @@ PAMultiReadyS$Elevation <- scale(PAMultiReadyS$Elevation)
 
 651-128
 
+## New modal dataframe 18/9/2024
+CoatCamModal <- read.csv("CoatCamExportModal.csv")
+
+CoatCamModalS <- CoatCamModal
+CoatCamModalS$dtnt <- scale(CoatCamModalS$dtnt)
+CoatCamModalS$Top.Roughness <- scale(CoatCamModalS$Top.Roughness)
+CoatCamModalS$FPAR <- scale(CoatCamModalS$FPAR)
+CoatCamModalS$isothermal <- scale(CoatCamModalS$isothermal)
+CoatCamModalS$Elevation <- scale(CoatCamModalS$Elevation)
+
+
 #-----------------------modelling-----------------------------#
 #Using multinomial regression modelling. 
 
@@ -438,11 +458,17 @@ library(nnet)
 PAMultiReadySSubset <- PAMultiReadyS[!(PAMultiReadyS$Coat=="Absent"),]
 PAMultiReadySSubset$Coat <- as.factor(PAMultiReadySSubset$Coat)
 
+CoatCamModalS <- CoatCamModalS %>% drop_na(Coat)
+CoatCamModalS$Coat <- as.factor(CoatCamModalS$Coat)
+
 #Set black cats as the reference 
 PAMultiReadySSubset$Coat <- relevel(PAMultiReadySSubset$Coat, "SB")
 
-MultiModel <- multinom(Coat ~ Veg + FPAR + Elevation + isothermal + Top.Roughness + dtnt, data = PAMultiReadySSubset) #change dataset depending
+CoatCamModalS$Coat <- relevel(CoatCamModalS$Coat, "B")
 
+#Modelling 
+
+MultiModel <- multinom(Coat ~ Veg + FPAR + Elevation + isothermal + Top.Roughness + dtnt, data = PAMultiReadySSubset) #change dataset depending
 
 summary(MultiModel)
 # Obtain confidence intervals for coefficients
@@ -455,7 +481,6 @@ confintDF <- as.data.frame(conf_intervals)
 coeffDF <- as.data.frame(exp(coef(MultiModel)))
 #write.csv(coeffDF, "coefEnviroSAll.csv")
 
-
 EditCofint <- read.csv("SubsetMulti.csv") #Change depending on the csv
 
 str(EditCofint)
@@ -465,7 +490,6 @@ EditCofint$Predictor <- as.factor(EditCofint$Predictor)
 #Plot for this 
 
 #coat_titles <- c("Blotched brown", "Orange", "Mackerel brown", "Tortoiseshell")
-
 
 library(ggplot2)
 # Create a ggplot for each Coat type
@@ -480,3 +504,135 @@ plots <- ggplot(EditCofint, aes(x = Predictor, y = OddsRatio, ymin = Lower, ymax
 plots
 
 #OddsRatioMultinom
+
+
+#New Model September 2024 
+
+#New model 18.9.2023
+#Need to combine rainforest and tall eucalypt due to lack of orange observations 
+CoatCamModalS$Veg[CoatCamModalS$Veg == "Rainforest"] <- "TallEuc"
+CoatCamModalS$Veg[CoatCamModalS$Veg == "Grassland"] <- "Shrubland"
+CoatCamModalS$Veg[CoatCamModalS$Veg == "Human/Other"] <- "Woodland"
+
+
+MultiModelNew <- multinom(Coat ~ Veg + FPAR + Elevation + isothermal + Top.Roughness + dtnt, data = CoatCamModalS) #change dataset depending
+
+summary(MultiModelNew)
+# Obtain confidence intervals for coefficients
+conf_intervals <- exp(confint(MultiModelNew))
+confintDF <- as.data.frame(conf_intervals)
+
+#Can't be arsed figuring out how to do this in R.
+write.csv(confintDF, "ConfintEnviroSAllNew.csv")
+# Extract coefficients
+coeffDF <- as.data.frame(exp(coef(MultiModelNew)))
+write.csv(coeffDF, "coefEnviroSAllNew.csv")
+
+EditCofint <- read.csv("NewModelOutputSep.csv") #Change depending on the csv
+
+str(EditCofint)
+EditCofint$Coat <- as.factor(EditCofint$Coat)
+EditCofint$Predictor <- as.factor(EditCofint$Predictor)
+
+#Plot for this 
+
+#coat_titles <- c("Blotched brown", "Orange", "Mackerel brown", "Tortoiseshell")
+
+library(ggplot2)
+# Create a ggplot for each Coat type
+plots <- ggplot(EditCofint, aes(x = Predictor, y = OddsRatio, ymin = Lower, ymax = Upper, fill = Predictor)) +
+  geom_errorbar(position = position_dodge(width = 0.7), width = 0.25) +
+  geom_point(position = position_dodge(width = 0.7), size = 1, shape = 21, fill = "black") +
+  facet_wrap(~Coat, scales = "free_y") +
+  geom_hline(yintercept = 1, linetype = "dotted", color = "red") +  # Add a red dotted line through 1
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x = "Spatial predictors", y = "Odds ratio") + 
+  scale_x_discrete(labels = c("VegTallEuc" = "Veg = Forest", "VegWoodland" = "Veg = Woodland"))
+plots
+
+plyr::count(CoatCamModalS$Coat)
+plyr::count(CoatCamModalS$Veg)
+table(CoatCamModalS$Veg, CoatCamModalS$Coat)
+plyr::count(CoatCamModal$Coat)
+
+
+
+
+
+#NMDS for model selection ?? For reviewer comments##
+#CoatCamModal select variables
+CoatCamModalNew <- CoatCamModal[,c("cam", "lat", "lon", "Land.Use", "Veg", "isothermal", 
+                                   "dtnt", "Top.Roughness", "Coat")]
+
+
+#Distance between camera traps 
+CoatDFCams <- CoatDF[,c("cam", "zone", "region", "lon", "lat")]
+CoatDFCams <- CoatDFCams %>% distinct(cam, .keep_all = TRUE)
+plyr::count(CoatDFCams$region)
+
+# Load required libraries
+library(dplyr)
+library(geosphere) # for calculating distances
+library(purrr) # for handling list structures
+
+# Assuming your dataframe is called df and has columns: cam, region, lat, lon
+
+# Function to calculate distances and find nearest neighbor
+find_nearest_distances <- function(region_data) {
+  # Get lat/lon matrix for the region
+  coords <- region_data %>% select(lon, lat)
+  
+  # Compute pairwise distances in meters
+  distance_matrix <- distm(coords, fun = distHaversine)
+  
+  # Replace diagonal with NA (distance to self)
+  diag(distance_matrix) <- NA
+  
+  # Find the minimum distance for each camera (nearest neighbor)
+  nearest_distances <- apply(distance_matrix, 1, min, na.rm = TRUE)
+  
+  return(nearest_distances)
+}
+
+# Apply function to each region and calculate average nearest distance per region
+result <- CoatDFCams %>%
+  group_by(region) %>%
+  summarise(avg_nearest_distance = mean(find_nearest_distances(cur_data()), na.rm = TRUE))
+
+# View the result
+print(result)
+
+# Load required libraries
+library(dplyr)
+library(geosphere) # for calculating distances
+
+# Function to calculate distances and find nearest neighbor
+find_nearest_distances <- function(df) {
+  # Get lat/lon matrix
+  coords <- df %>% select(lon, lat)
+  
+  # Compute pairwise distances in meters
+  distance_matrix <- distm(coords, fun = distHaversine)
+  
+  # Replace diagonal with NA (distance to self)
+  diag(distance_matrix) <- NA
+  
+  # Find the minimum distance for each camera (nearest neighbor)
+  nearest_distances <- apply(distance_matrix, 1, min, na.rm = TRUE)
+  
+  return(nearest_distances)
+}
+
+# Apply function to entire dataframe
+nearest_distances <- find_nearest_distances(CoatDFCams)
+
+# Calculate the overall average and standard deviation of the nearest distances
+average_nearest_distance <- mean(nearest_distances, na.rm = TRUE)
+sd_nearest_distance <- sd(nearest_distances, na.rm = TRUE)
+
+# View results
+cat("Average Nearest Distance:", average_nearest_distance, "meters\n")
+cat("Standard Deviation:", sd_nearest_distance, "meters\n")
+
+
